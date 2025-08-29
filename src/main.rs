@@ -49,13 +49,19 @@ fn sdl_button_to_vigem(button: sdl3::gamepad::Button) -> Option<VigemInput> {
 }
 
 fn main() {
-
     sdl3::hint::set("SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
     let sdl_context = sdl3::init().unwrap();
     let gamepad_system = sdl_context.gamepad().unwrap();
-    // TODO: find controller by id from config file
-    // need to be able to update this when configuring
+
+    // App state setup
+    let mut current_app_state = AppState::AcceptingInput;
+    let mut should_mash = false;
+    let mut config_held_buttons: HashMap<u32, Vec<VigemInput>> = HashMap::new();
+    let mut config_detect_needs_initialized = true;
+    let mut buttons_held: Vec<bool> = vec![false; 3];
+    // we need a reference to an open gamepad for it to stay open
     let mut _opened_gamepads: Vec<sdl3::gamepad::Gamepad> = Vec::new();
+    // TODO: find controller by id from config file
     let mut current_controller = gamepad_system
         .gamepads()
         .unwrap()
@@ -74,13 +80,6 @@ fn main() {
         .collect::<Vec<sdl3::gamepad::Gamepad>>()
         .remove(0);
 
-
-    // App state setup
-    let mut current_app_state = AppState::AcceptingInput;
-    let mut should_mash = false;
-    let mut config_held_buttons: HashMap<u32, Vec<VigemInput>> = HashMap::new();
-    let mut config_detect_needs_initialized = true;
-    let mut buttons_held: Vec<bool> = vec![false; 3];
 
     let mashing_buttons: Arc<RwLock<Vec<VigemInput>>> = Arc::new(std::sync::RwLock::new(Vec::new()));
     let thread_mashing_buttons = Arc::clone(&mashing_buttons);
