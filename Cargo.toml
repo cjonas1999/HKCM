@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# asr = { git = "https://github.com/AlexKnauth/asr", branch = "mono-5-split-index", features = [
-#     "alloc", # Working with allocations.
-#     "derive", # Defining your own settings structs, converting endianness, and binding to .NET classes.
-#     "integer-vars", # Setting integer variables.
-#     "unity", # Accessing games using the Unity engine.
-# ] }
+asr = { git = "https://github.com/AlexKnauth/asr", branch = "mono-5-split-index", features = [
+    "alloc", # Working with allocations.
+    "derive", # Defining your own settings structs, converting endianness, and binding to .NET classes.
+    "integer-vars", # Setting integer variables.
+    "unity", # Accessing games using the Unity engine.
+] }
 
 once_cell = "1.21.3"
 lazy_static = "1.5.0"
@@ -19,3 +19,10 @@ sdl3 = { version = "=0.14.36", features = ["build-from-source"] }
 
 [target."cfg(windows)".dependencies]
 vigem-client = "0.1.4"
+windows = { version = "0.52.0", features = [
+  "Win32_Foundation",
+  "Win32_System_Threading",
+  "Win32_System_Diagnostics_Debug",
+  "Win32_System_Diagnostics_ToolHelp",
+] }
+

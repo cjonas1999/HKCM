@@ -1,5 +1,9 @@
 #![cfg(target_os = "windows")]
 
+
+mod livesplit_core;
+mod text_masher;
+
 use log::{debug, error, info};
 use once_cell::sync::Lazy;
 use sdl3::gamepad;
@@ -9,8 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use vigem_client::{Client, XButtons, XGamepad};
-
-static NUM_MASHING_KEYS: usize = 3;
+use crate::text_masher::{text_masher, IS_MASHER_ACTIVE, MAX_MASHING_KEY_COUNT};
 
 enum AppState {
     DetectConfig,
@@ -22,11 +25,6 @@ enum VigemInput {
     Button(u16),
     LeftTrigger,
     RightTrigger,
-}
-
-struct MashingTrigger {
-    button: VigemInput,
-    is_pressed: bool,
 }
 
 fn sdl_button_to_vigem(button: sdl3::gamepad::Button) -> Option<VigemInput> {
@@ -57,7 +55,7 @@ fn main() {
     let gamepad_system = sdl_context.gamepad().unwrap();
     // TODO: find controller by id from config file
     // need to be able to update this when configuring
-    let mut opened_gamepads: Vec<sdl3::gamepad::Gamepad> = Vec::new();
+    let mut _opened_gamepads: Vec<sdl3::gamepad::Gamepad> = Vec::new();
     let mut current_controller = gamepad_system
         .gamepads()
         .unwrap()
@@ -76,21 +74,44 @@ fn main() {
         .collect::<Vec<sdl3::gamepad::Gamepad>>()
         .remove(0);
 
-    // VIGEM setup
-    let client = vigem_client::Client::connect().unwrap();
-    let id = vigem_client::TargetId::XBOX360_WIRED;
-    let mut target = vigem_client::Xbox360Wired::new(client, id);
-    target.plugin().expect("Failed to plugin virtual controller");
-    target.wait_ready().expect("Could not wait for virtual controller to ready");
-    let mut gamepad_state = vigem_client::XGamepad::default();
 
     // App state setup
-    // TODO: move what needs to into global state
     let mut current_app_state = AppState::AcceptingInput;
-    let mut mashing_trigger_state: Vec<MashingTrigger> = Vec::new();
     let mut should_mash = false;
     let mut config_held_buttons: HashMap<u32, Vec<VigemInput>> = HashMap::new();
     let mut config_detect_needs_initialized = true;
+    let mut buttons_held: Vec<bool> = vec![false; 3];
+
+    let mashing_buttons: Arc<RwLock<Vec<VigemInput>>> = Arc::new(std::sync::RwLock::new(Vec::new()));
+    let thread_mashing_buttons = Arc::clone(&mashing_buttons);
+
+    thread::spawn(move || {
+        // VIGEM setup
+        let client = vigem_client::Client::connect().unwrap();
+        let id = vigem_client::TargetId::XBOX360_WIRED;
+        let mut target = vigem_client::Xbox360Wired::new(client, id);
+        target.plugin().expect("Failed to plugin virtual controller");
+        target.wait_ready().expect("Could not wait for virtual controller to ready");
+
+        text_masher(|key_to_press| {
+            let mut gamepad_state = vigem_client::XGamepad::default();
+
+            if key_to_press < MAX_MASHING_KEY_COUNT {
+                let mash_buttons = thread_mashing_buttons.read().unwrap();
+                if let Some(press) = mash_buttons.get(key_to_press as usize) {
+                    match press {
+                        VigemInput::Button(b) => {
+                            gamepad_state.buttons = vigem_client::XButtons(*b)
+                        }
+                        VigemInput::LeftTrigger => gamepad_state.left_trigger = u8::MAX,
+                        VigemInput::RightTrigger => gamepad_state.right_trigger = u8::MAX,
+                    }
+                }
+            }
+
+            target.update(&gamepad_state).expect("Failed to update virtual controller while mashing");
+        });
+    });
 
     let mut event_pump = sdl_context.event_pump().unwrap();
     'mainloop: loop {
@@ -106,8 +127,8 @@ fn main() {
                         if which != current_controller.id().unwrap_or(u32::MAX) { continue; }
 
                         if let Some(vigem_button) = sdl_button_to_vigem(button) {
-                            if let Some(pressed_button) = mashing_trigger_state.iter_mut().find(|trigger| trigger.button == vigem_button) {
-                                pressed_button.is_pressed = true;
+                            if let Some(index) = mashing_buttons.read().unwrap().iter().position(|trigger| *trigger == vigem_button) {
+                                buttons_held[index] = true;
                             }
                         }
 
@@ -122,8 +143,8 @@ fn main() {
                         if which != current_controller.id().unwrap_or(u32::MAX) { continue; }
 
                         if let Some(vigem_button) = sdl_button_to_vigem(button) {
-                            if let Some(pressed_button) = mashing_trigger_state.iter_mut().find(|trigger| trigger.button == vigem_button) {
-                                pressed_button.is_pressed = false;
+                            if let Some(index) = mashing_buttons.read().unwrap().iter().position(|trigger| *trigger == vigem_button) {
+                                buttons_held[index] = false;
                             }
                         }
                     }
@@ -133,15 +154,15 @@ fn main() {
                             sdl3::gamepad::Axis::TriggerLeft => {
                                 if which != current_controller.id().unwrap_or(u32::MAX) { continue; }
 
-                                if let Some(pressed_trigger) = mashing_trigger_state.iter_mut().find(|m| m.button == VigemInput::LeftTrigger) {
-                                    pressed_trigger.is_pressed = value != 0;
+                                if let Some(index) = mashing_buttons.read().unwrap().iter().position(|m| *m == VigemInput::LeftTrigger) {
+                                    buttons_held[index] = value != 0;
                                 }
                             }
                             sdl3::gamepad::Axis::TriggerRight => {
                                 if which != current_controller.id().unwrap_or(u32::MAX) { continue; }
 
-                                if let Some(pressed_trigger) = mashing_trigger_state.iter_mut().find(|m| m.button == VigemInput::RightTrigger) {
-                                    pressed_trigger.is_pressed = value != 0;
+                                if let Some(index) = mashing_buttons.read().unwrap().iter().position(|m| *m == VigemInput::RightTrigger) {
+                                    buttons_held[index] = value != 0;
                                 }
                             }
                             _ => (),
@@ -154,7 +175,12 @@ fn main() {
                 }
 
                 // check if all triggers are pressed and activate the mashing
-                should_mash = mashing_trigger_state.iter().all(|t| t.is_pressed);
+                should_mash = buttons_held.iter().all(|t| *t);
+            }
+
+            if IS_MASHER_ACTIVE.load(Ordering::SeqCst) != should_mash {
+                debug!("all mashing triggers pressed: {}", should_mash);
+                IS_MASHER_ACTIVE.store(should_mash, Ordering::SeqCst);
             }
         }
 
@@ -170,7 +196,7 @@ fn main() {
                 config_detect_needs_initialized = false;
 
                 // open all gamepads
-                opened_gamepads = gamepad_system
+                _opened_gamepads = gamepad_system
                     .gamepads()
                     .unwrap()
                     .into_iter()
@@ -203,7 +229,7 @@ fn main() {
                                 if let Some(held) = config_held_buttons.get_mut(&which) {
                                     held.push(input);
 
-                                    if held.len() == NUM_MASHING_KEYS  {
+                                    if held.len() == MAX_MASHING_KEY_COUNT as usize {
                                         config_finalized = true;
                                     }
                                 }
@@ -242,7 +268,7 @@ fn main() {
                                                 held.push(input);
                                             }
 
-                                            if held.len() == NUM_MASHING_KEYS {
+                                            if held.len() == MAX_MASHING_KEY_COUNT as usize {
                                                 config_finalized = true;
                                             }
                                         }
@@ -270,7 +296,7 @@ fn main() {
                                                 held.push(input);
                                             }
 
-                                            if held.len() == NUM_MASHING_KEYS {
+                                            if held.len() == MAX_MASHING_KEY_COUNT as usize {
                                                 config_finalized = true;
                                             }
                                         }
@@ -296,9 +322,12 @@ fn main() {
 
                 if config_finalized {
                     for (k, val) in config_held_buttons.iter() {
-                        if val.len() == NUM_MASHING_KEYS {
+                        if val.len() == MAX_MASHING_KEY_COUNT as usize {
                             current_controller = gamepad_system.open(*k).unwrap();
-                            mashing_trigger_state = val.iter().map(|vig_in| MashingTrigger {button: vig_in.clone(), is_pressed: false}).collect();
+                            {
+                                *mashing_buttons.write().expect("Failed to get state while storing config") = val.clone();
+                            }
+
                             current_app_state = AppState::AcceptingInput;
                             config_detect_needs_initialized = true;
                             println!("ENTERING ACCEPTING INPUT MODE\n===================================");
