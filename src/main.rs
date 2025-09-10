@@ -21,12 +21,10 @@ use crate::text_masher::{text_masher, IS_MASHER_ACTIVE, MAX_MASHING_KEY_COUNT};
 enum AppState {
     DetectConfig,
     AcceptingInput,
-    DetectingController,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Settings {
-    controller_guid: String,
     mashing_triggers: Vec<VigemInput>,
 }
 
@@ -83,13 +81,13 @@ fn main() {
         .apply()
         .expect("Failed to configure logging");
 
-    let mut current_app_state = AppState::DetectingController;
+    let mut current_app_state = AppState::AcceptingInput;
     // Read from settings file
     let mut settings_path = base_path.clone();
     settings_path.push("HKCM_settings.json");
 
     let mut settings: Settings = if !settings_path.exists() {
-        let default_config = Settings{controller_guid: String::from(""), mashing_triggers: vec![VigemInput::Button(1), VigemInput::LeftTrigger, VigemInput::Button(32)]};
+        let default_config = Settings{mashing_triggers: vec![VigemInput::Button(1), VigemInput::LeftTrigger, VigemInput::Button(32)]};
         let json = serde_json::to_string_pretty(&default_config).expect("Failed to convert config to json");
         let mut file = File::create(&settings_path).unwrap();
         file.write_all(json.as_bytes()).expect("Failed to write config to file");
@@ -103,19 +101,14 @@ fn main() {
         serde_json::from_reader(file).expect("Could not parse settings file")
     };
 
-    info!("{}", settings.controller_guid);
-
     // App state setup
     sdl3::hint::set("SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
     let sdl_context = sdl3::init().unwrap();
     let gamepad_system = sdl_context.gamepad().unwrap();
 
-    let mut should_mash = false;
-    let mut config_held_buttons: HashMap<u32, Vec<VigemInput>> = HashMap::new();
-    let mut config_detect_needs_initialized = true;
-    let mut buttons_held: Vec<bool> = vec![false; 3];
+    let mut held_buttons: HashMap<u32, Vec<VigemInput>> = HashMap::new();
     // we need a reference to an open gamepad for it to stay open
-    let mut _opened_gamepads: Vec<sdl3::gamepad::Gamepad> = Vec::new();
+    let mut _opened_gamepads: HashMap<u32, sdl3::gamepad::Gamepad> = HashMap::new();
 
     let mut current_controller: Option<sdl3::gamepad::Gamepad> = None;
 
@@ -153,271 +146,126 @@ fn main() {
     info!("Initialization complete");
     let mut event_pump = sdl_context.event_pump().unwrap();
     'mainloop: loop {
-        //===============================
-        // Accepting Input for Mashing
-        //===============================
-        if matches!(current_app_state, AppState::AcceptingInput) {
-            if current_controller.as_ref().is_none() {
-                current_app_state = AppState::DetectingController;
-                continue 'mainloop;
-            }
-            event_pump.pump_events();
-            for event in event_pump.poll_iter() {
-                match event {
-                    Event::ControllerButtonDown { which, button, .. } => {
-                        debug!("controller down {}", button.string());
-                        if which != current_controller.as_ref().unwrap().id().unwrap_or(u32::MAX) { continue; }
+        let mut should_mash = false;
 
-                        if let Some(vigem_button) = sdl_button_to_vigem(button) {
-                            if let Some(index) = mashing_buttons.read().unwrap().iter().position(|trigger| *trigger == vigem_button) {
-                                buttons_held[index] = true;
-                            }
-                        }
-
-                        if button == sdl3::gamepad::Button::Start {
-                            debug!("ENTERING CONFIG DETECTION MODE\n============================");
-                            current_app_state = AppState::DetectConfig;
-                            continue 'mainloop;
-                        }
+        event_pump.pump_events();
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::ControllerDeviceAdded { which, .. } => {
+                    if let Ok(gamepad) = gamepad_system.open(which) {
+                        _opened_gamepads.insert(which, gamepad);
                     }
-                    Event::ControllerButtonUp { which, button, .. } => {
-                        debug!("controller up {}", button.string());
-                        if which != current_controller.as_ref().unwrap().id().unwrap_or(u32::MAX) { continue; }
-
-                        if let Some(vigem_button) = sdl_button_to_vigem(button) {
-                            if let Some(index) = mashing_buttons.read().unwrap().iter().position(|trigger| *trigger == vigem_button) {
-                                buttons_held[index] = false;
-                            }
-                        }
-                    }
-
-                    Event::ControllerAxisMotion { which, axis, value, .. } => {
-                        match axis {
-                            sdl3::gamepad::Axis::TriggerLeft => {
-                                if which != current_controller.as_ref().unwrap().id().unwrap_or(u32::MAX) { continue; }
-
-                                if let Some(index) = mashing_buttons.read().unwrap().iter().position(|m| *m == VigemInput::LeftTrigger) {
-                                    buttons_held[index] = value != 0;
-                                }
-                            }
-                            sdl3::gamepad::Axis::TriggerRight => {
-                                if which != current_controller.as_ref().unwrap().id().unwrap_or(u32::MAX) { continue; }
-
-                                if let Some(index) = mashing_buttons.read().unwrap().iter().position(|m| *m == VigemInput::RightTrigger) {
-                                    buttons_held[index] = value != 0;
-                                }
-                            }
-                            _ => (),
-                        }
-                    },
-
-                    Event::KeyDown { keycode: Some(sdl3::keyboard::Keycode::Escape), .. } => break 'mainloop,
-                    Event::Quit { .. } => break 'mainloop,
-                    _ => (),
                 }
-
-                // check if all triggers are pressed and activate the mashing
-                should_mash = buttons_held.len() > 0 && buttons_held.iter().all(|t| *t);
-            }
-
-            if IS_MASHER_ACTIVE.load(Ordering::SeqCst) != should_mash {
-                debug!("all mashing triggers pressed: {}", should_mash);
-                IS_MASHER_ACTIVE.store(should_mash, Ordering::SeqCst);
-            }
-        }
-
-
-        //========================
-        // Config Detection
-        // =======================
-        else if matches!(current_app_state, AppState::DetectConfig) {
-            let mut config_finalized = false;
-
-            if config_detect_needs_initialized {
-                config_held_buttons = HashMap::new();
-                config_detect_needs_initialized = false;
-
-                // open all gamepads
-                _opened_gamepads = gamepad_system
-                    .gamepads()
-                    .unwrap()
-                    .into_iter()
-                    .map(|j| match gamepad_system.open(j) {
-                        Ok(c) => {
-                            info!("Success: opened controller \"{}\"", c.name().unwrap());
-                            Some(c)
-                        }
-                        Err(e) => {
-                            error!("failed: {:?}", e);
-                            None
-                        }
-                    })
-                    .flatten()
-                    .collect();
-            }
-
-            
-            event_pump.pump_events();
-            for event in event_pump.poll_iter() {
-                match event {
-                    Event::ControllerButtonDown { which, button, .. } => {
-                        debug!("controller down {}", button.string());
-                        
-                        if let Some(input) = sdl_button_to_vigem(button) {
-                            if !config_held_buttons.contains_key(&which) {
-                                config_held_buttons.insert(which, vec![input]);
-                            } else {
-
-                                if let Some(held) = config_held_buttons.get_mut(&which) {
+                Event::ControllerDeviceRemoved { which, .. }         => {
+                    _opened_gamepads.remove(&which);
+                }
+                Event::ControllerButtonDown { which, button, .. } => {
+                    debug!("controller down {}", button.string());
+                    
+                    if let Some(input) = sdl_button_to_vigem(button) {
+                        if !held_buttons.contains_key(&which) {
+                            held_buttons.insert(which, vec![input]);
+                        } else {
+                            if let Some(held) = held_buttons.get_mut(&which) {
+                                if !held.iter().any(|x| *x == input) {
                                     held.push(input);
+                                }
+                            }
+                        }
+                    }
+                    // if button == sdl3::gamepad::Button::Start {
+                    //     debug!("ENTERING CONFIG DETECTION MODE\n============================");
+                    //     current_app_state = AppState::DetectConfig;
+                    //     continue 'mainloop;
+                    // }
+                }
+                Event::ControllerButtonUp { which, button, .. } => {
+                    debug!("controller up {}", button.string());
 
-                                    if held.len() == MAX_MASHING_KEY_COUNT as usize {
-                                        config_finalized = true;
+                    if let Some(entry) = held_buttons.get_mut(&which) {
+                        if let Some(input) = sdl_button_to_vigem(button) {
+                            entry.retain(|held| *held != input);
+
+                            if entry.is_empty() {
+                                held_buttons.remove_entry(&which);
+                            }
+                        }
+                    }
+                }
+                Event::ControllerAxisMotion { which, axis, value, .. } => {
+                    let converted_input = match axis {
+                        gamepad::Axis::TriggerLeft => Some(VigemInput::LeftTrigger),
+                        gamepad::Axis::TriggerRight => Some(VigemInput::RightTrigger),
+                        _ => None
+                    };
+
+                    if let Some(input) = converted_input {
+                        if value > 0 {
+                            if !held_buttons.contains_key(&which) {
+                                held_buttons.insert(which, vec![input]);
+                            } else {
+                                if let Some(held) = held_buttons.get_mut(&which) {
+                                    if !held.iter().any(|x| *x == input) {
+                                        held.push(input);
                                     }
                                 }
                             }
-                        }
-                    }
-                    Event::ControllerButtonUp { which, button, .. } => {
-                        debug!("controller up {}", button.string());
-
-                        if let Some(entry) = config_held_buttons.get_mut(&which) {
-                            if let Some(input) = sdl_button_to_vigem(button) {
+                        } 
+                        else {
+                            if let Some(entry) = held_buttons.get_mut(&which) {
                                 entry.retain(|held| *held != input);
 
                                 if entry.is_empty() {
-                                    config_held_buttons.remove_entry(&which);
+                                    held_buttons.remove_entry(&which);
                                 }
                             }
                         }
                     }
-
-                    Event::ControllerAxisMotion { which, axis, value, .. } => {
-                        match axis {
-                            sdl3::gamepad::Axis::TriggerLeft => {
-                                debug!("left trigger {}", value);
-                                let input = VigemInput::LeftTrigger;
-                            
-                                if value > 0 {
-                                    if !config_held_buttons.contains_key(&which) {
-                                        config_held_buttons.insert(which, vec![input]);
-                                    } else {
-                                        if let Some(held) = config_held_buttons.get_mut(&which) {
-                                            if !held.iter().any(|x| *x == input) {
-                                                held.push(input);
-                                            }
-
-                                            if held.len() == MAX_MASHING_KEY_COUNT as usize {
-                                                config_finalized = true;
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    if let Some(entry) = config_held_buttons.get_mut(&which) {
-                                        entry.retain(|held| *held != input);
-
-                                        if entry.is_empty() {
-                                            config_held_buttons.remove_entry(&which);
-                                        }
-                                    }
-                                }
-                            }
-                            sdl3::gamepad::Axis::TriggerRight => {
-                                debug!("right trigger {}", value);
-                                let input = VigemInput::RightTrigger;
-                            
-                                if value > 0 {
-                                    if !config_held_buttons.contains_key(&which) {
-                                        config_held_buttons.insert(which, vec![input]);
-                                    } else {
-                                        if let Some(held) = config_held_buttons.get_mut(&which) {
-                                            if !held.iter().any(|x| *x == input) {
-                                                held.push(input);
-                                            }
-
-                                            if held.len() == MAX_MASHING_KEY_COUNT as usize {
-                                                config_finalized = true;
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    if let Some(entry) = config_held_buttons.get_mut(&which) {
-                                        entry.retain(|held| *held != input);
-
-                                        if entry.is_empty() {
-                                            config_held_buttons.remove_entry(&which);
-                                        }
-                                    }
-                                }
-                            }
-                            _ => (),
-                        }
-                    },
-
-                    Event::KeyDown { keycode: Some(sdl3::keyboard::Keycode::Escape), .. } => break 'mainloop,
-                    Event::Quit { .. } => break 'mainloop,
-                    _ => (),
                 }
 
-                if config_finalized {
-                    for (k, val) in config_held_buttons.iter() {
-                        if val.len() == MAX_MASHING_KEY_COUNT as usize {
-                            current_controller = gamepad_system.open(*k).ok();
-                            {
-                                *mashing_buttons.write().expect("Failed to get state while storing config") = val.clone();
-                            }
+                Event::Quit { .. } => break 'mainloop,
+                _ => (),
+            }
 
-                            current_app_state = AppState::AcceptingInput;
-                            config_detect_needs_initialized = true;
+            // the mashing controller will never be holding all 3 so there
+            // isnt risk of a feedback loop
+            // config just needs to hold the mashing keys, and any controller
+            // can press them to activate the masher
+            if matches!(current_app_state, AppState::AcceptingInput) {
+                // dbg!(&held_buttons);
+                for (_, val) in held_buttons.iter() {
+                    if val.len() >= MAX_MASHING_KEY_COUNT as usize {
+                        // check if all triggers are pressed and activate the mashing
+                        should_mash = mashing_buttons.read().unwrap().iter().all(|button| val.contains(button));
+                    }
+                }
 
-                            if let Some(ref c) = current_controller {
-                                settings.controller_guid = gamepad_system.guid_for_id(c.id().unwrap()).string();
-                            }
-                            else {
-                                error!("Could not set controller id");
-                            }
-                            settings.mashing_triggers = val.clone();
-
-                            let json = serde_json::to_string_pretty(&settings).expect("Failed to convert config to json");
-                            let mut file = File::create(&settings_path).unwrap();
-                            file.write_all(json.as_bytes()).expect("Failed to write config to file");
-                            info!("ENTERING ACCEPTING INPUT MODE\n===================================");
-                            continue 'mainloop;
+                if IS_MASHER_ACTIVE.load(Ordering::SeqCst) != should_mash {
+                    debug!("all mashing triggers pressed: {}", should_mash);
+                    IS_MASHER_ACTIVE.store(should_mash, Ordering::SeqCst);
+                }
+            }
+            else if matches!(current_app_state, AppState::DetectConfig) {
+                for (_, val) in held_buttons.iter() {
+                    if val.len() == MAX_MASHING_KEY_COUNT as usize {
+                        {
+                            *mashing_buttons.write().expect("Failed to get state while storing config") = val.clone();
                         }
+
+                        current_app_state = AppState::AcceptingInput;
+
+                        settings.mashing_triggers = val.clone();
+
+                        let json = serde_json::to_string_pretty(&settings).expect("Failed to convert config to json");
+                        let mut file = File::create(&settings_path).unwrap();
+                        file.write_all(json.as_bytes()).expect("Failed to write config to file");
+                        info!("ENTERING ACCEPTING INPUT MODE\n===================================");
+                        continue 'mainloop;
                     }
                 }
             }
         }
 
-
-        
-        //========================
-        // Controller not connected
-        // =======================
-        else if matches!(current_app_state, AppState::DetectingController) {
-            // TODO:init controller from id in settings file
-
-            // TODO: handle when no controllers are plugged in
-            // open will not work if controller isnt plugged in
-
-            // Identify gamepad with correct id
-            if let Some(pad_index) = gamepad_system.gamepads().unwrap().iter().find(|&joystick_id| {
-                let joyname = gamepad_system.guid_for_id(*joystick_id).string();
-                debug!("detected {} == {}, {}", joyname, settings.controller_guid, joyname == settings.controller_guid);
-                joyname == settings.controller_guid
-            }) {
-                info!("in here");
-                if let Ok(pad) = gamepad_system.open(*pad_index) {
-                    info!("Success: opened controller \"{}\"", pad.name().unwrap());
-                    current_controller = Some(pad);
-                    current_app_state = AppState::AcceptingInput;
-                    continue 'mainloop;
-                } else {
-                    error!("Could not open controller {:?}", settings.controller_guid);
-                    current_controller = None;
-                }
-            }
-        }
     }
 
 }
