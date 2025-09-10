@@ -146,8 +146,6 @@ fn main() {
     info!("Initialization complete");
     let mut event_pump = sdl_context.event_pump().unwrap();
     'mainloop: loop {
-        let mut should_mash = false;
-
         event_pump.pump_events();
         for event in event_pump.poll_iter() {
             match event {
@@ -232,6 +230,7 @@ fn main() {
             // config just needs to hold the mashing keys, and any controller
             // can press them to activate the masher
             if matches!(current_app_state, AppState::AcceptingInput) {
+                let mut should_mash = false;
                 for (_, val) in held_buttons.iter() {
                     if val.len() >= MAX_MASHING_KEY_COUNT as usize {
                         // check if all triggers are pressed and activate the mashing
@@ -259,7 +258,7 @@ fn main() {
                         let json = serde_json::to_string_pretty(&settings).expect("Failed to convert config to json");
                         let mut file = File::create(&settings_path).unwrap();
                         file.write_all(json.as_bytes()).expect("Failed to write config to file");
-                        info!("ENTERING ACCEPTING INPUT MODE\n===================================");
+                        info!("Config set, now accepting input");
                         continue 'mainloop;
                     }
                 }
