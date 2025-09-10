@@ -232,11 +232,11 @@ fn main() {
             // config just needs to hold the mashing keys, and any controller
             // can press them to activate the masher
             if matches!(current_app_state, AppState::AcceptingInput) {
-                // dbg!(&held_buttons);
                 for (_, val) in held_buttons.iter() {
                     if val.len() >= MAX_MASHING_KEY_COUNT as usize {
                         // check if all triggers are pressed and activate the mashing
                         should_mash = mashing_buttons.read().unwrap().iter().all(|button| val.contains(button));
+                        if should_mash { break };
                     }
                 }
 
