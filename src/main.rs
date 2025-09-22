@@ -3,6 +3,15 @@
 mod livesplit_core;
 mod text_masher;
 
+use log::LevelFilter;
+use log4rs::append::console::ConsoleAppender;
+use log4rs::append::file::FileAppender;
+use log4rs::encode::pattern::PatternEncoder;
+use log4rs::append::rolling_file::policy::compound::roll::delete::DeleteRoller;
+use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
+use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
+use log4rs::append::rolling_file::RollingFileAppender;
+use log4rs::config::{Appender, Config, Logger, Root};
 use log::{debug, error, info};
 use serde::{Serialize, Deserialize};
 use std::fs::File;
@@ -63,23 +72,34 @@ fn main() {
 
     let mut log_file_path = base_path.clone();
     log_file_path.push("HKCM_log.txt");
-    let log_file = fern::log_file(log_file_path).unwrap();
+
     // Configure Logger
-    fern::Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "[{} {} {}] {}",
-                humantime::format_rfc3339_seconds(SystemTime::now()),
-                record.level(),
-                record.target(),
-                message
-            ))
-        })
-        .level(log::LevelFilter::Debug)
-        .chain(std::io::stdout())
-        .chain(log_file)
-        .apply()
-        .expect("Failed to configure logging");
+    let log_pattern = "{d(%Y-%m-%d %H:%M:%S)} [{l}] {M}:{L} - {m}{n}";
+    let console_log_appender = ConsoleAppender::builder()
+        .encoder(Box::new(PatternEncoder::new(log_pattern)))
+        .build();
+
+    let log_file_appender = log4rs::append::rolling_file::RollingFileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new(log_pattern)))
+        .build(log_file_path,
+            Box::new(CompoundPolicy::new(
+                Box::new(SizeTrigger::new(1024 * 1024 * 10)),
+                Box::new(DeleteRoller::new()),
+            )),
+        ).unwrap();
+
+    let config = Config::builder()
+        .appender(Appender::builder().build("console", Box::new(console_log_appender)))
+        .appender(Appender::builder().build("file", Box::new(log_file_appender)))
+        .build(
+            Root::builder()
+                .appender("console")
+                .appender("file")
+                .build(LevelFilter::Debug),
+            // TODO: dynamically select filter level in debug vs release builds
+        ).unwrap();
+
+    log4rs::init_config(config).unwrap();
 
     let mut current_app_state = AppState::AcceptingInput;
     // Read from settings file
