@@ -20,6 +20,7 @@ use humantime;
 use std::time::SystemTime;
 use sdl3::gamepad;
 use sdl3::event::Event;
+use sdl3::pixels::Color;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
@@ -122,7 +123,7 @@ fn main() {
     };
 
     // App state setup
-    sdl3::hint::set("SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
+    sdl3::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
     let sdl_context = sdl3::init().unwrap();
     let gamepad_system = sdl_context.gamepad().unwrap();
 
@@ -163,12 +164,56 @@ fn main() {
         });
     });
 
+    // Initialize GUI
+    let video_subsystem = sdl_context.video().unwrap();
+
+    let window = video_subsystem.window("rust-sdl3 demo", 800, 600)
+        .position_centered()
+        .build()
+        .unwrap();
+    let mut canvas = window.into_canvas();
+    let texture_creator = canvas.texture_creator();
+
+    let ttf_context = sdl3::ttf::init().unwrap();
+    const FONT_DATA: &[u8] = include_bytes!("../fonts/Roboto-Regular.ttf");
+    let font_stream = sdl3::iostream::IOStream::from_bytes(FONT_DATA).expect("Failed to read font data");
+    let font = ttf_context.load_font_from_iostream(font_stream, 150.0).unwrap();
+
+    let surface = font
+        .render("Configure")
+        .blended(Color::RGBA(250, 250, 250, 255))
+        .map_err(|e| e.to_string()).unwrap();
+    let texture = texture_creator
+        .create_texture_from_surface(&surface)
+        .map_err(|e| e.to_string()).unwrap();
+
+    let my_rect = sdl3::rect::Rect::new(10, 10, 200, 80);
+    let my_frect = sdl3::render::FRect::from(my_rect);
+
+    canvas.set_draw_color(Color::RGB(68, 136, 120));
+    canvas.clear();
+    canvas.set_draw_color(Color::RGB(108, 55, 81));
+    canvas.fill_rect(my_frect).expect("Failed rendering button");
+    canvas.set_draw_color(Color::RGB(255, 255, 255));
+
+    canvas.copy(&texture, None, Some(my_frect)).unwrap();
+    canvas.present();
+
+
     info!("Initialization complete");
     let mut event_pump = sdl_context.event_pump().unwrap();
     'mainloop: loop {
         event_pump.pump_events();
         for event in event_pump.poll_iter() {
             match event {
+                Event::MouseButtonDown { mouse_btn, x, y, clicks, window_id, .. } => {
+                    if window_id == canvas.window().id() && matches!(mouse_btn, sdl3::mouse::MouseButton::Left) {
+                        if my_rect.contains_point(sdl3::rect::Point::new(x as i32, y as i32)) {
+                            info!("clicked button");
+                            current_app_state = AppState::DetectConfig;
+                        }
+                    }
+                }
                 Event::ControllerDeviceAdded { which, .. } => {
                     if let Ok(gamepad) = gamepad_system.open(which) {
                         _opened_gamepads.insert(which, gamepad);
