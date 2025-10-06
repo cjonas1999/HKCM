@@ -5,19 +5,15 @@ mod text_masher;
 
 use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
-use log4rs::append::file::FileAppender;
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::append::rolling_file::policy::compound::roll::delete::DeleteRoller;
 use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
-use log4rs::append::rolling_file::RollingFileAppender;
-use log4rs::config::{Appender, Config, Logger, Root};
+use log4rs::config::{Appender, Config, Root};
 use log::{debug, error, info};
 use serde::{Serialize, Deserialize};
 use std::fs::File;
 use std::io::Write;
-use humantime;
-use std::time::SystemTime;
 use sdl3::gamepad;
 use sdl3::event::Event;
 use sdl3::pixels::Color;
@@ -131,8 +127,6 @@ fn main() {
     // we need a reference to an open gamepad for it to stay open
     let mut _opened_gamepads: HashMap<u32, sdl3::gamepad::Gamepad> = HashMap::new();
 
-    let mut current_controller: Option<sdl3::gamepad::Gamepad> = None;
-
     let mashing_buttons: Arc<RwLock<Vec<VigemInput>>> = Arc::new(std::sync::RwLock::new(settings.mashing_triggers.clone()));
     let thread_mashing_buttons = Arc::clone(&mashing_buttons);
 
@@ -206,10 +200,10 @@ fn main() {
         event_pump.pump_events();
         for event in event_pump.poll_iter() {
             match event {
-                Event::MouseButtonDown { mouse_btn, x, y, clicks, window_id, .. } => {
+                Event::MouseButtonDown { mouse_btn, x, y, window_id, .. } => {
                     if window_id == canvas.window().id() && matches!(mouse_btn, sdl3::mouse::MouseButton::Left) {
                         if my_rect.contains_point(sdl3::rect::Point::new(x as i32, y as i32)) {
-                            info!("clicked button");
+                            info!("Detecting mashing configuration");
                             current_app_state = AppState::DetectConfig;
                         }
                     }
@@ -236,11 +230,6 @@ fn main() {
                             }
                         }
                     }
-                    // if button == sdl3::gamepad::Button::Start {
-                    //     debug!("ENTERING CONFIG DETECTION MODE\n============================");
-                    //     current_app_state = AppState::DetectConfig;
-                    //     continue 'mainloop;
-                    // }
                 }
                 Event::ControllerButtonUp { which, button, .. } => {
                     debug!("controller up {}", button.string());
