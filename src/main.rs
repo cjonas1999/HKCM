@@ -171,7 +171,7 @@ fn main() {
     let ttf_context = sdl3::ttf::init().unwrap();
     const FONT_DATA: &[u8] = include_bytes!("../fonts/Roboto-Regular.ttf");
     let font_stream = sdl3::iostream::IOStream::from_bytes(FONT_DATA).expect("Failed to read font data");
-    let font = ttf_context.load_font_from_iostream(font_stream, 150.0).unwrap();
+    let font = ttf_context.load_font_from_iostream(font_stream, 50.0).unwrap();
 
     let surface = font
         .render("Configure")
@@ -181,18 +181,27 @@ fn main() {
         .create_texture_from_surface(&surface)
         .map_err(|e| e.to_string()).unwrap();
 
-    let my_rect = sdl3::rect::Rect::new(10, 10, 200, 80);
-    let my_frect = sdl3::render::FRect::from(my_rect);
+    let sdl3::render::TextureQuery { width, height, .. } = texture.query();
 
+    let my_rect = sdl3::rect::Rect::new(10, 10, width+20, height+10);
+    let text_rect = sdl3::rect::Rect::new(20, 15, width, height);
+
+    // background
     canvas.set_draw_color(Color::RGB(68, 136, 120));
     canvas.clear();
+    // configure button
     canvas.set_draw_color(Color::RGB(108, 55, 81));
-    canvas.fill_rect(my_frect).expect("Failed rendering button");
+    canvas.fill_rect(my_rect).expect("Failed rendering button");
     canvas.set_draw_color(Color::RGB(255, 255, 255));
-
-    canvas.copy(&texture, None, Some(my_frect)).unwrap();
+    canvas.copy(&texture, None, text_rect).unwrap();
+    // input display button
+    let display_rect = sdl3::rect::Rect::new(500, 500, 40, 40);
+    canvas.set_draw_color(Color::RGB(80, 80, 80));
+    canvas.fill_rect(display_rect).expect("Failed rendering button");
+    // present to screen
     canvas.present();
 
+    let mut new_input = false;
 
     info!("Initialization complete");
     let mut event_pump = sdl_context.event_pump().unwrap();
@@ -218,7 +227,8 @@ fn main() {
                 }
                 Event::ControllerButtonDown { which, button, .. } => {
                     debug!("controller down {}", button.string());
-                    
+
+                    new_input = true;
                     if let Some(input) = sdl_button_to_vigem(button) {
                         if !held_buttons.contains_key(&which) {
                             held_buttons.insert(which, vec![input]);
@@ -234,6 +244,7 @@ fn main() {
                 Event::ControllerButtonUp { which, button, .. } => {
                     debug!("controller up {}", button.string());
 
+                    new_input = true;
                     if let Some(entry) = held_buttons.get_mut(&which) {
                         if let Some(input) = sdl_button_to_vigem(button) {
                             entry.retain(|held| *held != input);
@@ -319,6 +330,44 @@ fn main() {
             }
         }
 
+        if new_input {
+            // background
+            canvas.set_draw_color(Color::RGB(68, 136, 120));
+            canvas.clear();
+            // configure button
+            canvas.set_draw_color(Color::RGB(108, 55, 81));
+            canvas.fill_rect(my_rect).expect("Failed rendering button");
+            canvas.set_draw_color(Color::RGB(255, 255, 255));
+            canvas.copy(&texture, None, text_rect).unwrap();
+            // input display button
+            let mut max_held: Option<&Vec<VigemInput>> = None;
+            let mut max_len: usize = 0;
+            for (_, val) in held_buttons.iter() {
+                if val.len() > max_len {
+                    max_held = Some(val);
+                    max_len = val.len();
+                }
+            }
+
+            canvas.set_draw_color(Color::RGB(80, 80, 80));
+            if max_len > 0 {
+                if let Some(held) = max_held {
+                    for b in held {
+                        if *b == VigemInput::Button(1) {
+                            canvas.set_draw_color(Color::RGB(150, 150, 150));
+                        }
+                    }
+                }
+            }
+            let display_rect = sdl3::rect::Rect::new(500, 500, 40, 40);
+            canvas.fill_rect(display_rect).expect("Failed rendering button");
+            // present to screen
+            canvas.present();
+            new_input = false;
+        }
+
+        // only poll at 2000 Hz
+        std::thread::sleep(std::time::Duration::from_micros(500));
     }
 
 }
