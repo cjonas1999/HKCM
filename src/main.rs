@@ -204,80 +204,103 @@ fn main() {
 
     let sdl3::render::TextureQuery { width, height, .. } = texture.query();
 
-    let config_button_background = Rect::new(10, 10, width+20, height+10);
-    let config_button_text = Rect::new(20, 15, width, height);
+    // TODO: make configure button more responsive with changing color or text or something when in
+    // detection mode. a way to cancel configuration mode, either by pressing again or adding
+    // another button would also be great.
+    let config_button_background = Rect::new(10, 500, width+20, height+10);
+    let config_button_text = Rect::new(20, 505, width, height);
 
+    let input_display_x: i32 = 20;
+    let input_display_y: i32 = 20;
+
+    let face_button_width: u32 = 30;
+
+    let side_button_padding = 10;
+
+    let bumper_width = face_button_width * 2;
+    let bumper_height = face_button_width/2;
+
+    let face_button_y_offset = input_display_y + 2*side_button_padding + bumper_height as i32 + face_button_width as i32;
+
+    let middle_button_width: u32 = 15;
+    let middle_buttons_x_offset = input_display_x + middle_button_width as i32 + 3 * face_button_width as i32;
+    let middle_buttons_y_offset = face_button_y_offset + face_button_width as i32;
+
+    let right_x_offset = middle_buttons_x_offset + 6 * middle_button_width as i32;
 
     let mut input_display_boxes = HashMap::new();
     input_display_boxes.insert(
-        VigemInput::Button(XButtons::Y),
-        InputDisplay { rect: Rect::new(300, 300, 20, 20) }
+        VigemInput::LeftTrigger,
+        InputDisplay { rect: Rect::new(input_display_x, input_display_y, face_button_width * 2, face_button_width) }
     );
     input_display_boxes.insert(
-        VigemInput::Button(XButtons::B),
-        InputDisplay { rect: Rect::new(320, 320, 20, 20) }
+        VigemInput::RightTrigger,
+        InputDisplay { rect: Rect::new(right_x_offset + face_button_width as i32, input_display_y, face_button_width * 2, face_button_width) }
     );
     input_display_boxes.insert(
-        VigemInput::Button(XButtons::A),
-        InputDisplay { rect: Rect::new(300, 340, 20, 20) }
+        VigemInput::Button(XButtons::LB),
+        InputDisplay { rect: Rect::new(input_display_x, input_display_y + face_button_width as i32 + side_button_padding, bumper_width, bumper_height) }
     );
     input_display_boxes.insert(
-        VigemInput::Button(XButtons::X),
-        InputDisplay { rect: Rect::new(280, 320, 20, 20) }
+        VigemInput::Button(XButtons::RB),
+        InputDisplay { rect: Rect::new(right_x_offset + face_button_width as i32, input_display_y + face_button_width as i32 + side_button_padding, bumper_width, bumper_height) }
     );
 
     input_display_boxes.insert(
         VigemInput::Button(XButtons::UP),
-        InputDisplay { rect: Rect::new(200, 300, 20, 20) }
+        InputDisplay { rect: Rect::new(input_display_x + face_button_width as i32, face_button_y_offset, face_button_width, face_button_width) }
     );
     input_display_boxes.insert(
         VigemInput::Button(XButtons::RIGHT),
-        InputDisplay { rect: Rect::new(220, 320, 20, 20) }
+        InputDisplay { rect: Rect::new(input_display_x + 2*face_button_width as i32, face_button_y_offset + face_button_width as i32, face_button_width, face_button_width) }
     );
     input_display_boxes.insert(
         VigemInput::Button(XButtons::DOWN),
-        InputDisplay { rect: Rect::new(200, 340, 20, 20) }
+        InputDisplay { rect: Rect::new(input_display_x + face_button_width as i32, face_button_y_offset + 2*face_button_width as i32, face_button_width, face_button_width) }
     );
     input_display_boxes.insert(
         VigemInput::Button(XButtons::LEFT),
-        InputDisplay { rect: Rect::new(180, 320, 20, 20) }
+        InputDisplay { rect: Rect::new(input_display_x, face_button_y_offset + face_button_width as i32, face_button_width, face_button_width) }
     );
 
     input_display_boxes.insert(
         VigemInput::Button(XButtons::BACK),
-        InputDisplay { rect: Rect::new(200, 370, 20, 20) }
+        InputDisplay { rect: Rect::new(middle_buttons_x_offset, middle_buttons_y_offset, middle_button_width, middle_button_width) }
     );
     input_display_boxes.insert(
         VigemInput::Button(XButtons::GUIDE),
-        InputDisplay { rect: Rect::new(240, 370, 20, 20) }
+        InputDisplay { rect: Rect::new(middle_buttons_x_offset + 2 * middle_button_width as i32, middle_buttons_y_offset, middle_button_width, middle_button_width) }
     );
     input_display_boxes.insert(
         VigemInput::Button(XButtons::START),
-        InputDisplay { rect: Rect::new(280, 370, 20, 20) }
+        InputDisplay { rect: Rect::new(middle_buttons_x_offset + 2 * 2 * middle_button_width as i32, middle_buttons_y_offset, middle_button_width, middle_button_width) }
+    );
+
+
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::Y),
+        InputDisplay { rect: Rect::new(right_x_offset + face_button_width as i32, face_button_y_offset , face_button_width, face_button_width) }
     );
     input_display_boxes.insert(
+        VigemInput::Button(XButtons::B),
+        InputDisplay { rect: Rect::new(right_x_offset + 2*face_button_width as i32, face_button_y_offset + face_button_width as i32, face_button_width, face_button_width) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::A),
+        InputDisplay { rect: Rect::new(right_x_offset + face_button_width as i32, face_button_y_offset + 2*face_button_width as i32, face_button_width, face_button_width) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::X),
+        InputDisplay { rect: Rect::new(right_x_offset, face_button_y_offset + face_button_width as i32, face_button_width, face_button_width) }
+    );
+
+    input_display_boxes.insert(
         VigemInput::Button(XButtons::LTHUMB),
-        InputDisplay { rect: Rect::new(195, 420, 30, 30) }
+        InputDisplay { rect: Rect::new(input_display_x + 3*face_button_width as i32, face_button_y_offset + 3*face_button_width as i32, face_button_width, face_button_width) }
     );
     input_display_boxes.insert(
         VigemInput::Button(XButtons::RTHUMB),
-        InputDisplay { rect: Rect::new(295, 420, 30, 30) }
-    );
-    input_display_boxes.insert(
-        VigemInput::Button(XButtons::LB),
-        InputDisplay { rect: Rect::new(190, 270, 40, 20) }
-    );
-    input_display_boxes.insert(
-        VigemInput::Button(XButtons::RB),
-        InputDisplay { rect: Rect::new(290, 270, 40, 20) }
-    );
-    input_display_boxes.insert(
-        VigemInput::LeftTrigger,
-        InputDisplay { rect: Rect::new(190, 230, 40, 30) }
-    );
-    input_display_boxes.insert(
-        VigemInput::RightTrigger,
-        InputDisplay { rect: Rect::new(290, 230, 40, 30) }
+        InputDisplay { rect: Rect::new(right_x_offset - face_button_width as i32, face_button_y_offset + 3*face_button_width as i32, face_button_width, face_button_width) }
     );
 
     let mut new_input = true;
