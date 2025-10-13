@@ -11,11 +11,13 @@ use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
 use log4rs::config::{Appender, Config, Root};
 use log::{debug, error, info};
+use sdl3::render::{Canvas, TextureCreator};
 use serde::{Serialize, Deserialize};
 use std::fs::File;
 use std::io::Write;
 use sdl3::gamepad;
 use sdl3::event::Event;
+use sdl3::rect::Rect;
 use sdl3::pixels::Color;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
@@ -34,7 +36,7 @@ struct Settings {
     mashing_triggers: Vec<VigemInput>,
 }
 
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Hash, Eq)]
 enum VigemInput {
     Button(u16),
     LeftTrigger,
@@ -61,6 +63,25 @@ fn sdl_button_to_vigem(button: gamepad::Button) -> Option<VigemInput> {
         _ => None, // not supported in vigem
     }
 }
+
+struct InputDisplay {
+    rect: Rect,
+}
+
+static INPUT_DEFAULT_COLOR: Color = Color::RGB(80, 80, 80);
+static INPUT_HELD_COLOR: Color = Color::RGB(150, 150, 150);
+
+impl InputDisplay {
+    fn draw(&self, canvas: &mut sdl3::render::WindowCanvas, highlight: bool) {
+        if highlight {
+            canvas.set_draw_color(INPUT_HELD_COLOR);
+        } else {
+            canvas.set_draw_color(INPUT_DEFAULT_COLOR);
+        }
+        canvas.fill_rect(self.rect).expect("Failed rendering background");
+    }
+}
+
 
 fn main() {
     let mut base_path = dirs::data_dir().unwrap();
@@ -183,25 +204,83 @@ fn main() {
 
     let sdl3::render::TextureQuery { width, height, .. } = texture.query();
 
-    let my_rect = sdl3::rect::Rect::new(10, 10, width+20, height+10);
-    let text_rect = sdl3::rect::Rect::new(20, 15, width, height);
+    let config_button_background = Rect::new(10, 10, width+20, height+10);
+    let config_button_text = Rect::new(20, 15, width, height);
 
-    // background
-    canvas.set_draw_color(Color::RGB(68, 136, 120));
-    canvas.clear();
-    // configure button
-    canvas.set_draw_color(Color::RGB(108, 55, 81));
-    canvas.fill_rect(my_rect).expect("Failed rendering button");
-    canvas.set_draw_color(Color::RGB(255, 255, 255));
-    canvas.copy(&texture, None, text_rect).unwrap();
-    // input display button
-    let display_rect = sdl3::rect::Rect::new(500, 500, 40, 40);
-    canvas.set_draw_color(Color::RGB(80, 80, 80));
-    canvas.fill_rect(display_rect).expect("Failed rendering button");
-    // present to screen
-    canvas.present();
 
-    let mut new_input = false;
+    let mut input_display_boxes = HashMap::new();
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::Y),
+        InputDisplay { rect: Rect::new(300, 300, 20, 20) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::B),
+        InputDisplay { rect: Rect::new(320, 320, 20, 20) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::A),
+        InputDisplay { rect: Rect::new(300, 340, 20, 20) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::X),
+        InputDisplay { rect: Rect::new(280, 320, 20, 20) }
+    );
+
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::UP),
+        InputDisplay { rect: Rect::new(200, 300, 20, 20) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::RIGHT),
+        InputDisplay { rect: Rect::new(220, 320, 20, 20) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::DOWN),
+        InputDisplay { rect: Rect::new(200, 340, 20, 20) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::LEFT),
+        InputDisplay { rect: Rect::new(180, 320, 20, 20) }
+    );
+
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::BACK),
+        InputDisplay { rect: Rect::new(200, 370, 20, 20) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::GUIDE),
+        InputDisplay { rect: Rect::new(240, 370, 20, 20) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::START),
+        InputDisplay { rect: Rect::new(280, 370, 20, 20) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::LTHUMB),
+        InputDisplay { rect: Rect::new(195, 420, 30, 30) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::RTHUMB),
+        InputDisplay { rect: Rect::new(295, 420, 30, 30) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::LB),
+        InputDisplay { rect: Rect::new(190, 270, 40, 20) }
+    );
+    input_display_boxes.insert(
+        VigemInput::Button(XButtons::RB),
+        InputDisplay { rect: Rect::new(290, 270, 40, 20) }
+    );
+    input_display_boxes.insert(
+        VigemInput::LeftTrigger,
+        InputDisplay { rect: Rect::new(190, 230, 40, 30) }
+    );
+    input_display_boxes.insert(
+        VigemInput::RightTrigger,
+        InputDisplay { rect: Rect::new(290, 230, 40, 30) }
+    );
+
+    let mut new_input = true;
 
     info!("Initialization complete");
     let mut event_pump = sdl_context.event_pump().unwrap();
@@ -211,7 +290,9 @@ fn main() {
             match event {
                 Event::MouseButtonDown { mouse_btn, x, y, window_id, .. } => {
                     if window_id == canvas.window().id() && matches!(mouse_btn, sdl3::mouse::MouseButton::Left) {
-                        if my_rect.contains_point(sdl3::rect::Point::new(x as i32, y as i32)) {
+                        new_input = true;
+
+                        if config_button_background.contains_point(sdl3::rect::Point::new(x as i32, y as i32)) {
                             info!("Detecting mashing configuration");
                             current_app_state = AppState::DetectConfig;
                         }
@@ -263,6 +344,8 @@ fn main() {
                     };
 
                     if let Some(input) = converted_input {
+                        new_input = true;
+
                         if value > 0 {
                             if !held_buttons.contains_key(&which) {
                                 held_buttons.insert(which, vec![input]);
@@ -334,11 +417,10 @@ fn main() {
             // background
             canvas.set_draw_color(Color::RGB(68, 136, 120));
             canvas.clear();
-            // configure button
+            // config button
             canvas.set_draw_color(Color::RGB(108, 55, 81));
-            canvas.fill_rect(my_rect).expect("Failed rendering button");
-            canvas.set_draw_color(Color::RGB(255, 255, 255));
-            canvas.copy(&texture, None, text_rect).unwrap();
+            canvas.fill_rect(config_button_background).expect("Failed rendering button");
+            canvas.copy(&texture, None, config_button_text).unwrap();
             // input display button
             let mut max_held: Option<&Vec<VigemInput>> = None;
             let mut max_len: usize = 0;
@@ -349,18 +431,18 @@ fn main() {
                 }
             }
 
-            canvas.set_draw_color(Color::RGB(80, 80, 80));
-            if max_len > 0 {
-                if let Some(held) = max_held {
-                    for b in held {
-                        if *b == VigemInput::Button(1) {
-                            canvas.set_draw_color(Color::RGB(150, 150, 150));
-                        }
-                    }
+            if let Some(held) = max_held {
+                for (key, textbox) in &mut input_display_boxes {
+                    let highlighted = held.contains(&key);
+
+                    textbox.draw(&mut canvas, highlighted);
                 }
             }
-            let display_rect = sdl3::rect::Rect::new(500, 500, 40, 40);
-            canvas.fill_rect(display_rect).expect("Failed rendering button");
+            else {
+                for (_, textbox) in &mut input_display_boxes {
+                    textbox.draw(&mut canvas, false);
+                }
+            }
             // present to screen
             canvas.present();
             new_input = false;
