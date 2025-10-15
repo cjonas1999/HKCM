@@ -314,9 +314,6 @@ fn main() {
         .map_err(|e| e.to_string()).unwrap();
     let sdl3::render::TextureQuery { width: cancel_width, height: cancel_height, .. } = cancel_texture.query();
 
-    // TODO: make configure button more responsive with changing color or text or something when in
-    // detection mode. a way to cancel configuration mode, either by pressing again or adding
-    // another button would also be great.
     let config_button_y_offset = thumbstick_button_y_offset + 50;
     let config_text_padding = 10;
     let config_button_background = Rect::new(input_display_x, config_button_y_offset, configure_width+2*config_text_padding, configure_height+2*config_text_padding);
