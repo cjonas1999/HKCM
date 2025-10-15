@@ -68,8 +68,8 @@ struct InputDisplay {
     rect: Rect,
 }
 
-static INPUT_DEFAULT_COLOR: Color = Color::RGB(80, 80, 80);
-static INPUT_HELD_COLOR: Color = Color::RGB(150, 150, 150);
+static INPUT_DEFAULT_COLOR: Color = Color::RGB(110, 110, 110);
+static INPUT_HELD_COLOR: Color = Color::RGB(170, 170, 170);
 
 impl InputDisplay {
     fn draw(&self, canvas: &mut sdl3::render::WindowCanvas, highlight: bool) {
@@ -79,6 +79,12 @@ impl InputDisplay {
             canvas.set_draw_color(INPUT_DEFAULT_COLOR);
         }
         canvas.fill_rect(self.rect).expect("Failed rendering background");
+    }
+
+    fn outline(&self, canvas: &mut sdl3::render::WindowCanvas) {
+        canvas.set_draw_color(Color::RGB(255, 0, 0));
+        let frect: sdl3::render::FRect = sdl3::render::FRect::from(self.rect);
+        canvas.draw_rect(frect).expect("Failed to outline rect");
     }
 }
 
@@ -182,7 +188,7 @@ fn main() {
     // Initialize GUI
     let video_subsystem = sdl_context.video().unwrap();
 
-    let window = video_subsystem.window("rust-sdl3 demo", 800, 600)
+    let window = video_subsystem.window("rust-sdl3 demo", 320, 320)
         .position_centered()
         .build()
         .unwrap();
@@ -192,24 +198,9 @@ fn main() {
     let ttf_context = sdl3::ttf::init().unwrap();
     const FONT_DATA: &[u8] = include_bytes!("../fonts/Roboto-Regular.ttf");
     let font_stream = sdl3::iostream::IOStream::from_bytes(FONT_DATA).expect("Failed to read font data");
-    let font = ttf_context.load_font_from_iostream(font_stream, 50.0).unwrap();
+    let font = ttf_context.load_font_from_iostream(font_stream, 30.0).unwrap();
 
-    let surface = font
-        .render("Configure")
-        .blended(Color::RGBA(250, 250, 250, 255))
-        .map_err(|e| e.to_string()).unwrap();
-    let texture = texture_creator
-        .create_texture_from_surface(&surface)
-        .map_err(|e| e.to_string()).unwrap();
-
-    let sdl3::render::TextureQuery { width, height, .. } = texture.query();
-
-    // TODO: make configure button more responsive with changing color or text or something when in
-    // detection mode. a way to cancel configuration mode, either by pressing again or adding
-    // another button would also be great.
-    let config_button_background = Rect::new(10, 500, width+20, height+10);
-    let config_button_text = Rect::new(20, 505, width, height);
-
+    // Define Input Display
     let input_display_x: i32 = 20;
     let input_display_y: i32 = 20;
 
@@ -294,18 +285,50 @@ fn main() {
         InputDisplay { rect: Rect::new(right_x_offset, face_button_y_offset + face_button_width as i32, face_button_width, face_button_width) }
     );
 
+    let thumbstick_button_y_offset = face_button_y_offset + 3*face_button_width as i32;
     input_display_boxes.insert(
         VigemInput::Button(XButtons::LTHUMB),
-        InputDisplay { rect: Rect::new(input_display_x + 3*face_button_width as i32, face_button_y_offset + 3*face_button_width as i32, face_button_width, face_button_width) }
+        InputDisplay { rect: Rect::new(input_display_x + 3*face_button_width as i32, thumbstick_button_y_offset, face_button_width, face_button_width) }
     );
     input_display_boxes.insert(
         VigemInput::Button(XButtons::RTHUMB),
-        InputDisplay { rect: Rect::new(right_x_offset - face_button_width as i32, face_button_y_offset + 3*face_button_width as i32, face_button_width, face_button_width) }
+        InputDisplay { rect: Rect::new(right_x_offset - face_button_width as i32, thumbstick_button_y_offset, face_button_width, face_button_width) }
     );
 
-    let mut new_input = true;
+    // Define config button
+    let configure_text_surface = font
+        .render("Configure")
+        .blended(Color::RGBA(250, 250, 250, 255))
+        .map_err(|e| e.to_string()).unwrap();
+    let configure_texture = texture_creator
+        .create_texture_from_surface(&configure_text_surface)
+        .map_err(|e| e.to_string()).unwrap();
+    let sdl3::render::TextureQuery { width: configure_width, height: configure_height, .. } = configure_texture.query();
+
+    let cancel_text_surface = font
+        .render("Cancel")
+        .blended(Color::RGBA(250, 250, 250, 255))
+        .map_err(|e| e.to_string()).unwrap();
+    let cancel_texture = texture_creator
+        .create_texture_from_surface(&cancel_text_surface)
+        .map_err(|e| e.to_string()).unwrap();
+    let sdl3::render::TextureQuery { width: cancel_width, height: cancel_height, .. } = cancel_texture.query();
+
+    // TODO: make configure button more responsive with changing color or text or something when in
+    // detection mode. a way to cancel configuration mode, either by pressing again or adding
+    // another button would also be great.
+    let config_button_y_offset = thumbstick_button_y_offset + 50;
+    let config_text_padding = 10;
+    let config_button_background = Rect::new(input_display_x, config_button_y_offset, configure_width+2*config_text_padding, configure_height+2*config_text_padding);
+    let config_button_text = Rect::new(input_display_x + config_text_padding as i32, config_button_y_offset + config_text_padding as i32, configure_width, configure_height);
+
+    let cancel_text_padding_x = (config_button_background.width() - cancel_width)/2;
+    let cancel_button_text = Rect::new(input_display_x + cancel_text_padding_x as i32, config_button_y_offset + config_text_padding as i32, cancel_width, cancel_height);
+
+
 
     info!("Initialization complete");
+    let mut new_input = true;
     let mut event_pump = sdl_context.event_pump().unwrap();
     'mainloop: loop {
         event_pump.pump_events();
@@ -316,8 +339,14 @@ fn main() {
                         new_input = true;
 
                         if config_button_background.contains_point(sdl3::rect::Point::new(x as i32, y as i32)) {
-                            info!("Detecting mashing configuration");
-                            current_app_state = AppState::DetectConfig;
+                            if matches!(current_app_state, AppState::AcceptingInput) {
+                                info!("Detecting mashing configuration");
+                                current_app_state = AppState::DetectConfig;
+                            }
+                            else if matches!(current_app_state, AppState::DetectConfig) {
+                                info!("Cancel detection");
+                                current_app_state = AppState::AcceptingInput;
+                            }
                         }
                     }
                 }
@@ -436,15 +465,24 @@ fn main() {
             }
         }
 
+
+        // Render GUI
         if new_input {
-            // background
-            canvas.set_draw_color(Color::RGB(68, 136, 120));
+            // Draw background
+            canvas.set_draw_color(Color::RGB(106, 166, 180));
             canvas.clear();
-            // config button
-            canvas.set_draw_color(Color::RGB(108, 55, 81));
+
+            // Draw config button
+            canvas.set_draw_color(Color::RGB(70, 87, 117));
             canvas.fill_rect(config_button_background).expect("Failed rendering button");
-            canvas.copy(&texture, None, config_button_text).unwrap();
-            // input display button
+            if matches!(current_app_state, AppState::AcceptingInput) {
+                canvas.copy(&configure_texture, None, config_button_text).unwrap();
+            }
+            else if matches!(current_app_state, AppState::DetectConfig) {
+                canvas.copy(&cancel_texture, None, cancel_button_text).unwrap();
+            }
+
+            // Draw input display
             let mut max_held: Option<&Vec<VigemInput>> = None;
             let mut max_len: usize = 0;
             for (_, val) in held_buttons.iter() {
@@ -455,18 +493,25 @@ fn main() {
             }
 
             if let Some(held) = max_held {
-                for (key, textbox) in &mut input_display_boxes {
+                for (key, display) in &mut input_display_boxes {
                     let highlighted = held.contains(&key);
-
-                    textbox.draw(&mut canvas, highlighted);
+                    display.draw(&mut canvas, highlighted);
                 }
             }
             else {
-                for (_, textbox) in &mut input_display_boxes {
-                    textbox.draw(&mut canvas, false);
+                for (_, display) in &mut input_display_boxes {
+                    display.draw(&mut canvas, false);
                 }
             }
-            // present to screen
+
+            // Outline configured mashing triggers
+            for mashing_button in mashing_buttons.read().unwrap().iter() {
+                if let Some(display) = input_display_boxes.get_mut(mashing_button) {
+                    display.outline(&mut canvas);
+                }
+            }
+
+
             canvas.present();
             new_input = false;
         }
