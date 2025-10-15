@@ -112,6 +112,11 @@ fn main() {
             )),
         ).unwrap();
 
+    #[cfg(debug_assertions)]
+    let log_level = LevelFilter::Debug;
+    #[cfg(not(debug_assertions))]
+    let log_level = LevelFilter::Warn;
+
     let config = Config::builder()
         .appender(Appender::builder().build("console", Box::new(console_log_appender)))
         .appender(Appender::builder().build("file", Box::new(log_file_appender)))
@@ -119,8 +124,7 @@ fn main() {
             Root::builder()
                 .appender("console")
                 .appender("file")
-                .build(LevelFilter::Debug),
-            // TODO: dynamically select filter level in debug vs release builds
+                .build(log_level),
         ).unwrap();
 
     log4rs::init_config(config).unwrap();
