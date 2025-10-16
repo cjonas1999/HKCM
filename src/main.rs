@@ -107,7 +107,7 @@ fn main() {
         .encoder(Box::new(PatternEncoder::new(log_pattern)))
         .build(log_file_path,
             Box::new(CompoundPolicy::new(
-                Box::new(SizeTrigger::new(1024 * 1024 * 10)),
+                Box::new(SizeTrigger::new(1024 * 1024 * 1)),
                 Box::new(DeleteRoller::new()),
             )),
         ).unwrap();
@@ -115,7 +115,7 @@ fn main() {
     #[cfg(debug_assertions)]
     let log_level = LevelFilter::Debug;
     #[cfg(not(debug_assertions))]
-    let log_level = LevelFilter::Warn;
+    let log_level = LevelFilter::Info;
 
     let config = Config::builder()
         .appender(Appender::builder().build("console", Box::new(console_log_appender)))
@@ -192,7 +192,7 @@ fn main() {
     // Initialize GUI
     let video_subsystem = sdl_context.video().unwrap();
 
-    let window = video_subsystem.window("rust-sdl3 demo", 320, 320)
+    let window = video_subsystem.window("rust-sdl3 demo", 320, 300)
         .position_centered()
         .build()
         .unwrap();
@@ -201,8 +201,10 @@ fn main() {
 
     let ttf_context = sdl3::ttf::init().unwrap();
     const FONT_DATA: &[u8] = include_bytes!("../fonts/Roboto-Regular.ttf");
-    let font_stream = sdl3::iostream::IOStream::from_bytes(FONT_DATA).expect("Failed to read font data");
+    let mut font_stream = sdl3::iostream::IOStream::from_bytes(FONT_DATA).expect("Failed to read font data");
     let font = ttf_context.load_font_from_iostream(font_stream, 30.0).unwrap();
+    font_stream = sdl3::iostream::IOStream::from_bytes(FONT_DATA).expect("Failed to read font data");
+    let small_font = ttf_context.load_font_from_iostream(font_stream, 17.0).unwrap();
 
     // Define Input Display
     let input_display_x: i32 = 20;
@@ -326,7 +328,16 @@ fn main() {
     let cancel_text_padding_x = (config_button_background.width() - cancel_width)/2;
     let cancel_button_text = Rect::new(input_display_x + cancel_text_padding_x as i32, config_button_y_offset + config_text_padding as i32, cancel_width, cancel_height);
 
-
+    let guide_text_surface = small_font
+        .render("Hold 3 buttons\nto configure\nmasher triggers.")
+        .blended_wrapped(Color::RGBA(250, 250, 250, 255), 0)
+        .map_err(|e| e.to_string()).unwrap();
+    let guide_texture = texture_creator
+        .create_texture_from_surface(&guide_text_surface)
+        .map_err(|e| e.to_string()).unwrap();
+    let sdl3::render::TextureQuery { width: guide_width, height: guide_height, .. } = guide_texture.query();
+    let guide_x = config_button_background.x() + config_button_background.width() as i32 + 8;
+    let guide_text = Rect::new(guide_x, config_button_y_offset, guide_width, guide_height);
 
     info!("Initialization complete");
     let mut new_input = true;
@@ -474,13 +485,16 @@ fn main() {
             canvas.clear();
 
             // Draw config button
-            canvas.set_draw_color(Color::RGB(70, 87, 117));
-            canvas.fill_rect(config_button_background).expect("Failed rendering button");
             if matches!(current_app_state, AppState::AcceptingInput) {
+                canvas.set_draw_color(Color::RGB(70, 87, 117));
+                canvas.fill_rect(config_button_background).expect("Failed rendering button");
                 canvas.copy(&configure_texture, None, config_button_text).unwrap();
             }
             else if matches!(current_app_state, AppState::DetectConfig) {
+                canvas.set_draw_color(Color::RGB(93, 114, 152));
+                canvas.fill_rect(config_button_background).expect("Failed rendering button");
                 canvas.copy(&cancel_texture, None, cancel_button_text).unwrap();
+                canvas.copy(&guide_texture, None, guide_text).unwrap();
             }
 
             // Draw input display
