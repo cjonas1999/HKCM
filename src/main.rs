@@ -205,41 +205,35 @@ fn main() {
     let mashing_buttons: Arc<RwLock<Vec<VigemInput>>> = Arc::new(std::sync::RwLock::new(settings.mashing_triggers.clone()));
     let thread_mashing_buttons = Arc::clone(&mashing_buttons);
 
-    let result = toggle_masher_overlay(false);
 
-    if result.is_ok() {
-        thread::spawn(move || {
-            // VIGEM setup
-            let client = vigem_client::Client::connect().unwrap();
-            let id = vigem_client::TargetId::XBOX360_WIRED;
-            let mut target = vigem_client::Xbox360Wired::new(client, id);
-            target.plugin().expect("Failed to plugin virtual controller");
-            target.wait_ready().expect("Could not wait for virtual controller to ready");
+    thread::spawn(move || {
+        // VIGEM setup
+        let client = vigem_client::Client::connect().unwrap();
+        let id = vigem_client::TargetId::XBOX360_WIRED;
+        let mut target = vigem_client::Xbox360Wired::new(client, id);
+        target.plugin().expect("Failed to plugin virtual controller");
+        target.wait_ready().expect("Could not wait for virtual controller to ready");
 
-            text_masher(|key_to_press| {
-                let mut gamepad_state = vigem_client::XGamepad::default();
+        text_masher(|key_to_press| {
+            let mut gamepad_state = vigem_client::XGamepad::default();
 
-                if key_to_press < MAX_MASHING_KEY_COUNT {
-                    let mash_buttons = thread_mashing_buttons.read().unwrap();
-                    if let Some(press) = mash_buttons.get(key_to_press as usize) {
-                        match press {
-                            VigemInput::Button(b) => {
-                                gamepad_state.buttons = XButtons(*b)
-                            }
-                            VigemInput::LeftTrigger => gamepad_state.left_trigger = u8::MAX,
-                            VigemInput::RightTrigger => gamepad_state.right_trigger = u8::MAX,
+            if key_to_press < MAX_MASHING_KEY_COUNT {
+                let mash_buttons = thread_mashing_buttons.read().unwrap();
+                if let Some(press) = mash_buttons.get(key_to_press as usize) {
+                    match press {
+                        VigemInput::Button(b) => {
+                            gamepad_state.buttons = XButtons(*b)
                         }
+                        VigemInput::LeftTrigger => gamepad_state.left_trigger = u8::MAX,
+                        VigemInput::RightTrigger => gamepad_state.right_trigger = u8::MAX,
                     }
                 }
+            }
 
-                target.update(&gamepad_state).expect("Failed to update virtual controller while mashing");
-            },
-            toggle_masher_overlay);
-        });
-    } else {
-        error!("{:?}", result.unwrap_err());
-        error!("Failed to find masher overlay, please make sure game is running with d3d11.dll added to game exe directory");
-    }
+            target.update(&gamepad_state).expect("Failed to update virtual controller while mashing");
+        },
+        toggle_masher_overlay);
+    });
 
     // Initialize GUI
     let video_subsystem = sdl_context.video().unwrap();
