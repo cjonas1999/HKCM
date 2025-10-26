@@ -178,8 +178,9 @@ fn main() {
     let mut settings_path = base_path.clone();
     settings_path.push("HKCM_settings.json");
 
+    let default_config = Settings{mashing_triggers: vec![VigemInput::Button(XButtons::X), VigemInput::Button(XButtons::A), VigemInput::Button(XButtons::B)]};
+
     let mut settings: Settings = if !settings_path.exists() {
-        let default_config = Settings{mashing_triggers: vec![VigemInput::Button(XButtons::X), VigemInput::Button(XButtons::A), VigemInput::Button(XButtons::B)]};
         let json = serde_json::to_string_pretty(&default_config).expect("Failed to convert config to json");
         let mut file = File::create(&settings_path).unwrap();
         file.write_all(json.as_bytes()).expect("Failed to write config to file");
@@ -189,8 +190,10 @@ fn main() {
     else {
         let file = File::open(&settings_path).unwrap();
 
-        // TODO: handle malformed file
-        serde_json::from_reader(file).expect("Could not parse settings file")
+        serde_json::from_reader(file).unwrap_or_else(|_| {
+            error!("Failed to parse settings from config file");
+            default_config
+        })
     };
 
     // App state setup
