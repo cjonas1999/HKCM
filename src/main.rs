@@ -11,7 +11,6 @@ use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
 use log4rs::config::{Appender, Config, Root};
 use log::{debug, error, info};
-use sdl3::render::{Canvas, TextureCreator};
 use serde::{Serialize, Deserialize};
 use std::fs::File;
 use std::io::Write;
@@ -24,11 +23,11 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use vigem_client::XButtons;
-use windows::Win32::Foundation::{CloseHandle, HWND};
+use windows::Win32::Foundation::CloseHandle;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use windows::Win32::Storage::FileSystem::{CreateFileW, FlushFileBuffers, WriteFile, FILE_GENERIC_WRITE, FILE_SHARE_READ, OPEN_EXISTING, SECURITY_ANONYMOUS};
-use windows::core::{PCWSTR, PWSTR};
+use windows::core::PCWSTR;
 use crate::text_masher::{text_masher, IS_MASHER_ACTIVE, SHOULD_TERMINATE_MASHER, MAX_MASHING_KEY_COUNT};
 
 enum AppState {
@@ -483,7 +482,7 @@ fn main() {
                 }
 
                 Event::Quit { .. } => {
-                    IS_MASHER_ACTIVE.store(true, Ordering::SeqCst);
+                    SHOULD_TERMINATE_MASHER.store(true, Ordering::SeqCst);
                     break 'mainloop
                 },
                 _ => (),
