@@ -1,4 +1,5 @@
 #![cfg(target_os = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod livesplit_core;
 mod text_masher;
@@ -240,7 +241,7 @@ fn main() {
     // Initialize GUI
     let video_subsystem = sdl_context.video().unwrap();
 
-    let window = video_subsystem.window("rust-sdl3 demo", 320, 300)
+    let window = video_subsystem.window("HKCM", 320, 300)
         .position_centered()
         .build()
         .unwrap();
