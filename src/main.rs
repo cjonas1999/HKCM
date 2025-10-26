@@ -179,7 +179,7 @@ fn main() {
     settings_path.push("HKCM_settings.json");
 
     let mut settings: Settings = if !settings_path.exists() {
-        let default_config = Settings{mashing_triggers: vec![VigemInput::Button(1), VigemInput::LeftTrigger, VigemInput::Button(32)]};
+        let default_config = Settings{mashing_triggers: vec![VigemInput::Button(XButtons::X), VigemInput::Button(XButtons::A), VigemInput::Button(XButtons::B)]};
         let json = serde_json::to_string_pretty(&default_config).expect("Failed to convert config to json");
         let mut file = File::create(&settings_path).unwrap();
         file.write_all(json.as_bytes()).expect("Failed to write config to file");
