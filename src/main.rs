@@ -24,7 +24,12 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use vigem_client::XButtons;
-use crate::text_masher::{text_masher, IS_MASHER_ACTIVE, MAX_MASHING_KEY_COUNT};
+use windows::Win32::Foundation::{CloseHandle, HWND};
+use std::ffi::OsStr;
+use std::os::windows::ffi::OsStrExt;
+use windows::Win32::Storage::FileSystem::{CreateFileW, FlushFileBuffers, WriteFile, FILE_GENERIC_WRITE, FILE_SHARE_READ, OPEN_EXISTING, SECURITY_ANONYMOUS};
+use windows::core::{PCWSTR, PWSTR};
+use crate::text_masher::{text_masher, IS_MASHER_ACTIVE, SHOULD_TERMINATE_MASHER, MAX_MASHING_KEY_COUNT};
 
 enum AppState {
     DetectConfig,
@@ -86,6 +91,45 @@ impl InputDisplay {
         let frect: sdl3::render::FRect = sdl3::render::FRect::from(self.rect);
         canvas.draw_rect(frect).expect("Failed to outline rect");
     }
+}
+
+
+fn toggle_masher_overlay(active: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut command = None;
+    if active {
+        debug!("Showing masher overlay");
+        command = Some("masher_active");
+    } else {
+        debug!("Hiding masher overlay");
+        command = Some("masher_inactive");
+    }
+    let pipe_name = r"\\.\pipe\masher_overlay";
+    let name_w: Vec<u16> = OsStr::new(pipe_name).encode_wide().chain(std::iter::once(0)).collect();
+
+    unsafe {
+        let handle = CreateFileW(
+            PCWSTR(name_w.as_ptr()),
+            FILE_GENERIC_WRITE.0,
+            FILE_SHARE_READ,
+            None,
+            OPEN_EXISTING,
+            SECURITY_ANONYMOUS,
+            None,
+        )?;
+
+        let mut written = 0u32;
+        WriteFile(
+            handle,
+            Some(command.unwrap().as_bytes()),
+            Some(&mut written as *mut u32),
+            None,
+        )?;
+
+        let _ = FlushFileBuffers(handle);
+        let _ = CloseHandle(handle);
+    }
+
+    Ok(())
 }
 
 
@@ -161,33 +205,41 @@ fn main() {
     let mashing_buttons: Arc<RwLock<Vec<VigemInput>>> = Arc::new(std::sync::RwLock::new(settings.mashing_triggers.clone()));
     let thread_mashing_buttons = Arc::clone(&mashing_buttons);
 
-    thread::spawn(move || {
-        // VIGEM setup
-        let client = vigem_client::Client::connect().unwrap();
-        let id = vigem_client::TargetId::XBOX360_WIRED;
-        let mut target = vigem_client::Xbox360Wired::new(client, id);
-        target.plugin().expect("Failed to plugin virtual controller");
-        target.wait_ready().expect("Could not wait for virtual controller to ready");
+    let result = toggle_masher_overlay(false);
 
-        text_masher(|key_to_press| {
-            let mut gamepad_state = vigem_client::XGamepad::default();
+    if result.is_ok() {
+        thread::spawn(move || {
+            // VIGEM setup
+            let client = vigem_client::Client::connect().unwrap();
+            let id = vigem_client::TargetId::XBOX360_WIRED;
+            let mut target = vigem_client::Xbox360Wired::new(client, id);
+            target.plugin().expect("Failed to plugin virtual controller");
+            target.wait_ready().expect("Could not wait for virtual controller to ready");
 
-            if key_to_press < MAX_MASHING_KEY_COUNT {
-                let mash_buttons = thread_mashing_buttons.read().unwrap();
-                if let Some(press) = mash_buttons.get(key_to_press as usize) {
-                    match press {
-                        VigemInput::Button(b) => {
-                            gamepad_state.buttons = XButtons(*b)
+            text_masher(|key_to_press| {
+                let mut gamepad_state = vigem_client::XGamepad::default();
+
+                if key_to_press < MAX_MASHING_KEY_COUNT {
+                    let mash_buttons = thread_mashing_buttons.read().unwrap();
+                    if let Some(press) = mash_buttons.get(key_to_press as usize) {
+                        match press {
+                            VigemInput::Button(b) => {
+                                gamepad_state.buttons = XButtons(*b)
+                            }
+                            VigemInput::LeftTrigger => gamepad_state.left_trigger = u8::MAX,
+                            VigemInput::RightTrigger => gamepad_state.right_trigger = u8::MAX,
                         }
-                        VigemInput::LeftTrigger => gamepad_state.left_trigger = u8::MAX,
-                        VigemInput::RightTrigger => gamepad_state.right_trigger = u8::MAX,
                     }
                 }
-            }
 
-            target.update(&gamepad_state).expect("Failed to update virtual controller while mashing");
+                target.update(&gamepad_state).expect("Failed to update virtual controller while mashing");
+            },
+            toggle_masher_overlay);
         });
-    });
+    } else {
+        error!("{:?}", result.unwrap_err());
+        error!("Failed to find masher overlay, please make sure game is running with d3d11.dll added to game exe directory");
+    }
 
     // Initialize GUI
     let video_subsystem = sdl_context.video().unwrap();
@@ -433,7 +485,10 @@ fn main() {
                     }
                 }
 
-                Event::Quit { .. } => break 'mainloop,
+                Event::Quit { .. } => {
+                    IS_MASHER_ACTIVE.store(true, Ordering::SeqCst);
+                    break 'mainloop
+                },
                 _ => (),
             }
 
